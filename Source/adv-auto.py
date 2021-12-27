@@ -28,21 +28,37 @@ def run_cycle(directions, total_iter_num):  # runs a single click cycle
                 
                 pyautogui.click(x=dir0, y=dir1)
                 sleep(dir2)
+
             elif direction[0].upper() == "PRESS":
+
                 if direction[1][:7] == "*F[i]*:":
                     f = open(direction[1][7:], "r")
                     contents = f.readlines()
                     f.close()
 
-                    pyautogui.press(contents[total_iter_num].rstrip("\n"))
+                    key = contents[total_iter_num].rstrip("\n")
 
+                    pyautogui.keyDown(key)
+
+                    hold_time = get_sleep(direction[2])
+                    sleep(hold_time)
+
+                    pyautogui.keyUp(key)
                 else:
-                    pyautogui.press(direction[1])
+                    key = direction[1]
 
-                dir2 = get_sleep(direction[2])
+                    pyautogui.keyDown(key)
+
+                    hold_time = get_sleep(direction[2])
+                    sleep(hold_time)
+
+                    pyautogui.keyUp(key)
+
+                dir2 = get_sleep(direction[3])
                 sleep(dir2)
 
             elif direction[0].upper() == "WRITE":
+
                 dir2 = get_sleep(direction[2])
 
                 if direction[1][:7] == "*F[i]*:":
@@ -171,10 +187,10 @@ PRESS key wait-time
 WRITE text interval-between-letters wait-time.
 
 Example --
-PRESS ENTER 1
+PRESS ENTER 0 1
 WRITE hello 0.5 1
 
-In the above example, the computer presses the ENTER key, waits 1 second, types the text "hello" with a 0.5 second wait time between letters, then waits another second.
+In the above example, the computer presses the ENTER key (holds it down for 0 seconds), waits 1 second, types the text "hello" with a 0.5 second wait time between letters, then waits another second.
 
 Keep in mind, when using the WRITE command, you can type spaces in your text and the program will still understand what it is supposed to do.  For example --
 WRITE hello world 0.5 1
