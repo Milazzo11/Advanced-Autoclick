@@ -1,228 +1,348 @@
+"""
+Advanced Programmable Autoclicker
+
+This script processes data from "click history" files to perform the functions of an advanced autoclicker.
+
+Features:
+- Mouse clicks and movements based on coordinates and wait times.
+- Key presses based on specified keys and hold times.
+- Text writing with specified intervals between letters and wait times.
+- Random wait times between specified ranges.
+- Ability to click multiple keys at once, such as "win + print screen".
+- Support for comments (`#`) and blank lines in click history files.
+- `FWRITE` command reads and writes data from a file based on the iteration number.
+- Press 'Q' to quit and 'P' to pause or resume.
+
+Usage:
+- Run the script without arguments to display instructions and create a click history file.
+- Run the script with two arguments: `<click history filename> <number of iterations>` to specify the file and number of iterations.
+
+To terminate the program at any time, press the 'Q' key.
+To pause or resume the program, press the 'P' key.
+
+Author: Max Milazzo
+"""
+
+import sys
+import os
+import threading
 import pyautogui
 import keyboard
-import threading
-import os
 from random import random
 from time import sleep
-# imports needed packages
+from datetime import datetime
+
+# Global flags for pause and stop
+pause_flag = threading.Event()
+stop_flag = threading.Event()
 
 
-def run_cycle(directions, total_iter_num):  # runs a single click cycle
+def run_cycle(directions, total_iter_num):
+    """
+    Runs a single click cycle based on the provided directions and iteration number.
+    """
+    
     try:
         for direction in directions:
-            if direction[0].isnumeric() or direction[0].upper() == "X" or direction[0].upper() == "CLICK":
-                if direction[0].upper() == "CLICK":
-                    del direction[0]
-
-                if not direction[0].isnumeric():
-                    dir0 = pyautogui.position()[0]
-                else:
-                    dir0 = int(direction[0])
+            command = direction[0].upper()
+            
+            if command in ["CLICK", "MOUSE"]:
+                execute_click_command(direction)
                 
-                if not direction[1].isnumeric():
-                    dir1 = pyautogui.position()[1]
-                else:
-                    dir1 = int(direction[1])
-
-                dir2 = get_sleep(direction[2])
+            elif command == "PRESS":
+                execute_press_command(direction, total_iter_num)
                 
-                pyautogui.click(x=dir0, y=dir1)
-                sleep(dir2)
-
-            elif direction[0].upper() == "PRESS":
-
-                if direction[1][:7] == "*F[i]*:":
-                    f = open(direction[1][7:], "r")
-                    contents = f.readlines()
-                    f.close()
-
-                    key = contents[total_iter_num].rstrip("\n")
-
-                    pyautogui.keyDown(key)
-
-                    hold_time = get_sleep(direction[2])
-                    sleep(hold_time)
-
-                    pyautogui.keyUp(key)
-                else:
-                    key = direction[1]
-
-                    pyautogui.keyDown(key)
-
-                    hold_time = get_sleep(direction[2])
-                    sleep(hold_time)
-
-                    pyautogui.keyUp(key)
-
-                dir2 = get_sleep(direction[3])
-                sleep(dir2)
-
-            elif direction[0].upper() == "WRITE":
-
-                dir2 = get_sleep(direction[2])
-
-                if direction[1][:7] == "*F[i]*:":
-                    f = open(direction[1][7:], "r")
-                    contents = f.readlines()
-                    f.close()
-
-                    pyautogui.write(contents[total_iter_num].rstrip("\n"), dir2)
-                else:
-                    pyautogui.write(direction[1], dir2)
-
-                dir3 = get_sleep(direction[3])
-                sleep(dir3)
-    except:
-        print("Error: Make sure your click history file is formatted correctly\nProgram will terminate in 10 seconds.")
+            elif command == "WRITE":
+                execute_write_command(direction)
+                
+            elif command == "FWRITE":
+                execute_fwrite_command(direction, total_iter_num)
+                
+            elif command == "SCREENSHOT":
+                execute_screenshot_command(direction)
+                
+            else:
+                raise ValueError(f"Unsupported command '{command}' found in directions.")
+            
+            # Check pause flag
+            while pause_flag.is_set():
+                sleep(0.1)
+            
+            # Check stop flag at the end of each iteration
+            if stop_flag.is_set():
+                print("Stopping the program...")
+                return
+            
+    except Exception as e:
+        print(f"Error: {e}\nProgram will terminate in 10 seconds.")
         sleep(10)
         os._exit(1)
 
 
-def get_sleep(dir2):
+def execute_click_command(direction):
+    """
+    Executes the CLICK command.
+    """
+    
+    x_pos = pyautogui.position()[0] if not direction[1].isnumeric() else int(direction[1])
+    y_pos = pyautogui.position()[1] if not direction[2].isnumeric() else int(direction[2])
+
+    # Get wait time and execute the click
+    wait_time = get_sleep_time(direction[3])
+    pyautogui.click(x=x_pos, y=y_pos)
+    sleep(wait_time)
+
+
+def execute_press_command(direction, total_iter_num):
+    """
+    Executes the PRESS command.
+    """
+    
+    key = direction[1]
+    
+    # Perform the key press
+    pyautogui.keyDown(key)
+    
+    # Calculate hold time and wait time
+    hold_time = get_sleep_time(direction[2])
+    sleep(hold_time)
+    
+    pyautogui.keyUp(key)
+
+    # Wait time after key press
+    wait_time = get_sleep_time(direction[3])
+    sleep(wait_time)
+
+
+def execute_write_command(direction):
+    """
+    Executes the WRITE command.
+    """
+    
+    # The text to be written
+    text = direction[1]
+
+    # Calculate the interval between keystrokes (supporting random ranges)
+    interval = get_sleep_time(direction[2])
+
+    # Calculate wait time after writing (supporting random ranges)
+    wait_time = get_sleep_time(direction[3])
+
+    # Write the text with the specified interval between keystrokes
+    pyautogui.write(text, interval=interval)
+
+    # Pause for the specified wait time
+    sleep(wait_time)
+
+
+def execute_fwrite_command(direction, total_iter_num):
+    """
+    Executes the FWRITE command: Writes data from a specified file.
+    """
+    
+    filename = direction[1]
+    
+    # Calculate the interval between keystrokes (supporting random ranges)
+    interval = get_sleep_time(direction[2])
+
+    # Calculate wait time after writing (supporting random ranges)
+    wait_time = get_sleep_time(direction[3])
+
+    # Read data from the specified file
+    with open(filename, "r") as f:
+        lines = f.readlines()
+
+    # Get the line for the current iteration
+    if total_iter_num < len(lines):
+        line_to_write = lines[total_iter_num].strip()
+        # Write the line from the file with the specified interval between keystrokes
+        pyautogui.write(line_to_write, interval=interval)
+    
+    # Wait after writing the line
+    sleep(wait_time)
+    
+    
+def execute_screenshot_command(direction):
+    """
+    Executes the SCREENSHOT command: Takes a screenshot and saves it to the specified directory with a filename based on the current timestamp.
+    """
+    
+    # Define the timestamp format
+    timestamp_format = "%Y%m%d_%H%M%S"
+
+    # Generate a timestamp string for the filename
+    timestamp = datetime.now().strftime(timestamp_format)
+
+    # The specified directory from the command (first argument)
+    directory = direction[1]
+
+    # Create the file path by joining the directory and the filename with the timestamp
+    file_path = os.path.join(directory, f"screenshot_{timestamp}.png")
+
+    # Take the screenshot and save it to the file path
+    pyautogui.screenshot(file_path)
+
+    print(f"Screenshot saved to: {file_path}")
+
+
+def get_sleep_time(time_str):
+    """
+    Parses the sleep time, supporting random ranges if specified.
+    """
+    
     try:
-        dir2 = float(dir2)
-    except ValueError:
-        if dir2[0].upper() == "R":
-            if dir2[1:].isnumeric():
-                dir2 = random() * float(dir2[1:])
-            else:
-                dir2 = dir2[1:]
-
-                randlist = dir2.split("-")
-                dir2 = random() * (float(randlist[1]) - float(randlist[0])) + float(randlist[0])
-
-        else:
-            dir2 = 0
-    except:
-        print("Error: Random number generation error\nProgram will terminate in 10 seconds.")
-        sleep(10)
-        os._exit(1) 
+        # Convert time_str to lowercase to handle both 'R' and 'r' prefixes
+        time_str = time_str.lower()
         
-    return dir2
+        if time_str.startswith("r"):
+            # Remove the prefix 'r' and check if a range is specified
+            time_str = time_str[1:]
+            
+            # Check if a range (e.g., '0.1-0.2') is specified
+            if "-" in time_str:
+                # Split the range and calculate the random wait time
+                min_time, max_time = map(float, time_str.split("-"))
+                return random() * (max_time - min_time) + min_time
+            else:
+                # Calculate random wait time up to the specified limit
+                max_time = float(time_str)
+                return random() * max_time
+        else:
+            # Return the sleep time as a float
+            return float(time_str)
+    except Exception as e:
+        print(f"Error parsing sleep time: {e}\nProgram will terminate in 10 seconds.")
+        sleep(10)
+        os._exit(1)
 
 
-def follow_clicks(filename):  # initiates click cycle loop
-    total_iter_num = 0
+def follow_clicks(filename, iterations):
+    """
+    Initiates click cycle loop using the provided file and number of iterations.
+    """
+    
+    # Read and parse the click history file
+    with open(filename, "r") as f:
+        lines = f.readlines()
 
-    f = open(filename, "r")
-    directions = f.readlines()
-    f.close()
-    # reads click history file
-
-    direction_list = []
-
-    for direction in directions:  # formats click directions from file into a list
-        line_list = direction.split()
-
-        if line_list[0].upper() == "WRITE":
-            while len(line_list) > 4:
-                line_list[1] = line_list[1] + " " + line_list[2]
-                del line_list[2]
-
-        direction_list.append(line_list)
+    # Parse directions and ignore blank lines and comments
+    directions = []
+    for line in lines:
+        # Remove comments and whitespace
+        clean_line = line.split("#")[0].strip()
+        if clean_line:  # Skip blank lines
+            directions.append(clean_line.split())
 
     print("\nOPERATION:")
-    print(direction_list)
+    print(directions)
 
-    iter_num = input("\nHow many times would you like to repeat this operation?  Enter any non-numerical character(s) for infinity.\n")
-    # gets loop information from user
-
-    input('\nPress ENTER to start countdown to program initiation.  After pressing, the program will commence in 10 seconds.  Press "Q" to quit.\n')
-
-    threading.Thread(target=keyboard.on_press_key("q", lambda _: os._exit(1)))
-    # starts a thread that will check for when the user clicks the "Q" key, and then and the program
-
-    for countdown in range(10):  # intiates a 10 second countdown before code executes
-        print(10 - countdown)
+    # Prompt the user to begin the autoclicker sequence
+    input('\nPress ENTER to start program initiation. Press "Q" to quit and "P" to pause/play.\n')
+    
+    for x in reversed(range(10)):
+        print(f"Starting in {x} seconds.")
         sleep(1)
 
-    if iter_num.isnumeric():  # if the user entered a number before, a for loop is opened
-        iter_num = int(iter_num)
+    # Set up keyboard listeners for 'P' and 'Q' keys
+    keyboard.on_press_key("q", stop_program)
+    keyboard.on_press_key("p", toggle_pause)
 
-        for _ in range(iter_num):
-            run_cycle(direction_list, total_iter_num)
-            total_iter_num += 1
+    # Begin the autoclicker sequence
+    total_iter_num = 0
 
-    else:  # if the user did not enter a number, the program loops infinitely
+    if iterations is not None:
+        # Finite iteration loop
+        for _ in range(iterations):
+            while True:
+                # Check stop flag
+                if stop_flag.is_set():
+                    print("Stopping the program...")
+                    return
+                
+                # Check pause flag
+                while pause_flag.is_set():
+                    sleep(0.1)
+                
+                # If not paused, run the cycle
+                run_cycle(directions, total_iter_num)
+                total_iter_num += 1
+                break
+    else:
+        # Infinite iteration loop
         while True:
-            run_cycle(direction_list, total_iter_num)
-            total_iter_num += 1
+            while True:
+                # Check stop flag
+                if stop_flag.is_set():
+                    print("Stopping the program...")
+                    return
+                
+                # Check pause flag
+                while pause_flag.is_set():
+                    sleep(0.1)
+                
+                # If not paused, run the cycle
+                run_cycle(directions, total_iter_num)
+                total_iter_num += 1
+                break
 
 
-def click_history():  # gives user directions on how to format a click history file, and shows mouse position
-
-    print("""
-DIRECTIONS --
-Create a new text file in the same folder as the main program.  To format mouse clicks, use the 
-following format:
-mouse-x mouse-y wait-time.
-
-Example --
-100 100 2
-50 50 1
-150 10 0
-
-In the above example, the computer clicks at x-100 y-100 then waits 2 seconds, clicks at x-50 y-50, then waits 1 second, then clicks at x-150 y-10, then waits 0 seconds.
+def click_history():
+    """
+    Provides user directions on how to format a click history file and displays mouse position.
+    """
     
-You can also replace the x and y mouse coordinates with simply "X" or "Y" and the current mouse position will be used.
-
-Example --
-x y 1
-x 100 1
-100 y 1
-
-The first click will happen wherever the mouse is located, the second at the mouse's current x-coordinate and y-100, and the third at x-100 and the mouse's current y-coordinate.
-
-Furthermore, although it does not affect functionality, you can add the command "CLICK" before your coordinates and wait time
-
-Example --
-CLICK 100 100 2
-CLICK 50 50 1
-CLICK 150 10 0
-
-Here, the same results will be produced as from the first example.
-
-You can also use the PRESS and WRITE commands, which use the following format:
-PRESS key wait-time
-WRITE text interval-between-letters wait-time.
-
-Example --
-PRESS ENTER 0 1
-WRITE hello 0.5 1
-
-In the above example, the computer presses the ENTER key (holds it down for 0 seconds), waits 1 second, types the text "hello" with a 0.5 second wait time between letters, then waits another second.
-
-Keep in mind, when using the WRITE command, you can type spaces in your text and the program will still understand what it is supposed to do.  For example --
-WRITE hello world 0.5 1
-
-The above example would result in the text "hello world" being typed.
-
-You can also substitute any wait time for a random number between 2 intevals.  Just type "R" then the upper random limit, or "R" followed by the lower random limit, a "-" and then the upper random limit.
-
-Example --
-100 100 r1
-50 200 r4-10
-
-The first line will wait between 0 and 1 seconds after clicking, and the second line will wait between 4 and 10 seconds.
-
-you can use the mouse location indicator below to help create your click history file:""")
-# prints the program directions
-
+    ### PUT DIRECTIONS HERE IF DESIRED (I definitely don't desire it)
+    
     pyautogui.displayMousePosition()
 
 
-print("Advanced Programmable Autoclicker\n\n")
+def stop_program(event):
+    """
+    Sets the stop flag to true, terminating the program.
+    """
+    
+    stop_flag.set()
 
-setup = input(f"Do you have a pre-existing click history file?  (Y/N)\n")
 
-if setup.upper() == "N":  # manages click history file setup
-    click_history()
-elif setup.upper() != "Y":
-    print(f"Error: Assuming file is complete")
+def toggle_pause(event):
+    """
+    Toggles the pause flag to pause or resume the autoclicker.
+    """
+    
+    if pause_flag.is_set():
+    
+        for x in reversed(range(10)):
+            print(f"Resuming in {x} seconds.")
+            sleep(1)
+    
+        pause_flag.clear()
+        print("Resumed...")
+    else:
+        pause_flag.set()
+        print("Paused...")
 
-filename = input("Enter the click history file name you would like to use\n")
 
-try:  # makes sure file name is valid then runs the program
-    follow_clicks(filename)
-except:
-    print("Error: Make sure the file name you are using is correct")
+def main():
+    """
+    Main function to run the autoclicker program.
+    """
+    
+    # Check if command-line arguments are provided
+    if len(sys.argv) == 1:
+        # No arguments provided, show instructions and display coordinates
+        click_history()
+    elif len(sys.argv) == 3:
+        # Two arguments provided: filename and iterations
+        filename = sys.argv[1]
+        try:
+            iterations = int(sys.argv[2])
+            follow_clicks(filename, iterations)
+        except ValueError:
+            print("Error: The number of iterations must be an integer.")
+    else:
+        print("Error: Please provide either 0 or 2 command-line arguments.")
+        print("Usage: python script.py <click history filename> <number of iterations>")
+
+
+if __name__ == "__main__":
+    main()
